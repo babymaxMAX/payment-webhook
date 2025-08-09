@@ -1,0 +1,39 @@
+{
+  "name": "payment-webhook",
+  "description": "Webhook сервис для обработки платежных уведомлений",
+  "keywords": ["node", "express", "webhook", "payments"],
+  "website": "https://github.com/yourusername/payment-webhook",
+  "repository": "https://github.com/yourusername/payment-webhook",
+  "logo": "https://node-js-sample.herokuapp.com/node.svg",
+  "success_url": "/webhook/info",
+  "scripts": {
+    "postdeploy": "echo 'Webhook сервис успешно развернут!'"
+  },
+  "env": {
+    "WEBHOOK_SECRET": {
+      "description": "Секретный ключ для проверки подписи вебхука",
+      "value": "your_webhook_secret_here",
+      "required": false
+    },
+    "ALLOWED_IPS": {
+      "description": "Разрешенные IP-адреса (через запятую)",
+      "required": false
+    },
+    "ALLOWED_ORIGINS": {
+      "description": "Разрешенные домены для CORS (через запятую)",
+      "required": false
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "free"
+    }
+  },
+  "addons": [],
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ]
+}
