@@ -8,6 +8,10 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// === Telegram notifications config ===
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_ADMIN_ID = process.env.TELEGRAM_ADMIN_ID || process.env.ADMIN_TG_ID;
+
 // Middleware для безопасности
 app.use(helmet());
 app.use(cors({
@@ -148,17 +152,79 @@ function processPayment(paymentData) {
 // Обработчики для разных типов платежных событий
 function handleSuccessfulPayment(data) {
   console.log('✅ Успешный платеж:', data.payment_id || data.id);
-  // Здесь логика для успешного платежа
+  // Уведомление администратору
+  notifyAdminPaymentEvent('success', data).catch((e) => {
+    console.error('Ошибка отправки уведомления в Telegram:', e);
+  });
 }
 
 function handleFailedPayment(data) {
   console.log('❌ Неудачный платеж:', data.payment_id || data.id);
-  // Здесь логика для неудачного платежа
+  notifyAdminPaymentEvent('failed', data).catch((e) => {
+    console.error('Ошибка отправки уведомления в Telegram:', e);
+  });
 }
 
 function handlePendingPayment(data) {
   console.log('⏳ Платеж в обработке:', data.payment_id || data.id);
-  // Здесь логика для платежа в обработке
+  notifyAdminPaymentEvent('pending', data).catch((e) => {
+    console.error('Ошибка отправки уведомления в Telegram:', e);
+  });
+}
+
+// === Telegram helpers ===
+async function sendTelegramMessage(chatId, text) {
+  if (!TELEGRAM_BOT_TOKEN || !chatId) {
+    return;
+  }
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const body = {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: true
+  };
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Telegram API error: ${response.status} ${errText}`);
+  }
+}
+
+function extractAmount(paymentData) {
+  return {
+    amount: paymentData.amount ?? paymentData.total_amount ?? paymentData.sum ?? null,
+    currency: paymentData.currency ?? paymentData.currency_code ?? 'RUB'
+  };
+}
+
+function extractBalance(paymentData) {
+  return paymentData.balance ?? paymentData.wallet_balance ?? paymentData.account_balance ?? null;
+}
+
+async function notifyAdminPaymentEvent(status, data) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_ADMIN_ID) {
+    return; // уведомления выключены
+  }
+  const { amount, currency } = extractAmount(data);
+  const balance = extractBalance(data);
+  const lines = [
+    `Платёж: ${status === 'success' ? 'УСПЕШНО ✅' : status === 'failed' ? 'ОТКЛОНЁН ❌' : 'В ОБРАБОТКЕ ⏳'}`,
+    amount != null ? `Сумма: ${amount} ${currency}` : undefined,
+    data.payment_id || data.id ? `ID платежа: ${data.payment_id || data.id}` : undefined,
+    data.order_id ? `Заказ: ${data.order_id}` : undefined,
+    data.status ? `Статус провайдера: ${data.status}` : undefined,
+    balance != null ? `Баланс: ${balance}` : undefined,
+    data.customer?.email ? `Email: ${data.customer.email}` : undefined,
+    data.customer?.phone ? `Телефон: ${data.customer.phone}` : undefined,
+    data.created_at ? `Время: ${data.created_at}` : undefined
+  ].filter(Boolean);
+
+  const text = lines.join('\n');
+  await sendTelegramMessage(TELEGRAM_ADMIN_ID, text);
 }
 
 // Endpoint для проверки здоровья сервиса
