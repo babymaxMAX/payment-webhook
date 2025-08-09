@@ -170,6 +170,20 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Совместимость с типовым путём healthcheck у провайдеров
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Простой корневой ответ, чтобы не видеть Not Found при открытии домена
+app.get('/', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Endpoint для получения информации о вебхуке
 app.get('/webhook/info', (req, res) => {
   res.status(200).json({
