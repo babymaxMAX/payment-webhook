@@ -16,7 +16,6 @@ app.use(cors({
 
 // Middleware для парсинга JSON
 app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.raw({ type: 'application/json', limit: '10mb' }));
 
 // Логирование всех запросов
 app.use((req, res, next) => {
@@ -31,16 +30,23 @@ function verifySignature(payload, signature, secret) {
   if (!secret || !signature) {
     return false;
   }
-  
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-  
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, 'hex'),
-    Buffer.from(expectedSignature, 'hex')
-  );
+
+  try {
+    const expectedBuffer = crypto
+      .createHmac('sha256', secret)
+      .update(payload)
+      .digest(); // Buffer
+
+    const providedBuffer = Buffer.from(String(signature).trim(), 'hex');
+
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+  } catch (e) {
+    return false;
+  }
 }
 
 // Middleware для проверки IP-адресов (whitelist)
