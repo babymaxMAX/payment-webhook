@@ -31,6 +31,7 @@ async function ensureDb() {
 // === Telegram notifications config ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_ADMIN_ID = process.env.TELEGRAM_ADMIN_ID || process.env.ADMIN_TG_ID;
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || process.env.ADMIN_KEY;
 
 // Middleware для безопасности
 app.use(helmet());
@@ -345,6 +346,49 @@ app.get('/webhook/info', (req, res) => {
   });
 });
 
+// Админ: просмотр последних платежей через HTTP (только с ключом)
+app.get('/admin/payments', async (req, res) => {
+  try {
+    if (!ADMIN_API_KEY || req.query.key !== ADMIN_API_KEY) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (!dbPool) {
+      return res.status(503).json({ error: 'Database is not configured' });
+    }
+    const limit = Math.min(parseInt(req.query.limit || '20', 10) || 20, 200);
+    const { rows } = await dbPool.query(
+      'SELECT id, amount, currency, provider_status, event_type, created_at FROM payments ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+    res.json({ items: rows, count: rows.length });
+  } catch (e) {
+    console.error('admin/payments error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/admin/payments/:id', async (req, res) => {
+  try {
+    if (!ADMIN_API_KEY || req.query.key !== ADMIN_API_KEY) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (!dbPool) {
+      return res.status(503).json({ error: 'Database is not configured' });
+    }
+    const { rows } = await dbPool.query(
+      'SELECT * FROM payments WHERE id = $1 LIMIT 1',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.json(rows[0]);
+  } catch (e) {
+    console.error('admin/payments/:id error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Обработка 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
@@ -366,6 +410,13 @@ app.listen(PORT, () => {
     console.log('🔐 Проверка подписи включена');
   } else {
     console.log('⚠️  Проверка подписи отключена (установите WEBHOOK_SECRET)');
+  }
+
+  // Инициализация БД
+  if (dbPool) {
+    ensureDb()
+      .then(() => console.log('🗄️  Таблица payments готова'))
+      .catch((e) => console.error('Ошибка инициализации БД:', e));
   }
 });
 
