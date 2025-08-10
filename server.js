@@ -73,11 +73,15 @@ function checkIPWhitelist(req, res, next) {
 }
 
 // Главный endpoint для вебхука
-app.post('/webhook/payment', checkIPWhitelist, (req, res) => {
+app.post(['/webhook/payment', '/webhook'], checkIPWhitelist, (req, res) => {
   try {
     const rawBody = JSON.stringify(req.body);
     const signature = req.headers['x-signature'] || req.headers['signature'];
     const secret = process.env.WEBHOOK_SECRET;
+    const headerApiKey = req.headers['x-apikey'] || req.headers['x-api-key'] || req.headers['x-secret'];
+    const expectedApiKey = process.env.PLATEGA_API_KEY || process.env.API_KEY;
+    const headerMerchantId = req.headers['x-merchantid'] || req.headers['x-merchant-id'];
+    const expectedMerchantId = process.env.PLATEGA_MERCHANT_ID || process.env.MERCHANT_ID;
     
     // Проверяем подпись если секрет установлен
     if (secret) {
@@ -86,9 +90,34 @@ app.post('/webhook/payment', checkIPWhitelist, (req, res) => {
         return res.status(401).json({ error: 'Invalid signature' });
       }
     }
+
+    // Проверка API-ключа/мерчанта (для некоторых провайдеров, например Platega)
+    if (expectedApiKey) {
+      if (!headerApiKey || String(headerApiKey).trim() !== String(expectedApiKey).trim()) {
+        console.log('Invalid API key');
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+    }
+    if (expectedMerchantId) {
+      if (!headerMerchantId || String(headerMerchantId).trim() !== String(expectedMerchantId).trim()) {
+        console.log('Invalid MerchantId');
+        return res.status(401).json({ error: 'Invalid MerchantId' });
+      }
+    }
     
     // Обрабатываем платежное уведомление
     const paymentData = req.body;
+    // Нормализуем тип события из статусных значений провайдера, если event_type не передан
+    if (!paymentData.event_type && !paymentData.type && paymentData.status) {
+      const status = String(paymentData.status).toUpperCase();
+      if (status === 'CONFIRMED' || status === 'SUCCESS' || status === 'SUCCEEDED') {
+        paymentData.event_type = 'payment.succeeded';
+      } else if (status === 'PENDING' || status === 'PROCESSING') {
+        paymentData.event_type = 'payment.pending';
+      } else if (['CANCELED', 'FAILED', 'EXPIRED', 'CANCELLED'].includes(status)) {
+        paymentData.event_type = 'payment.failed';
+      }
+    }
     console.log('Получено платежное уведомление:', paymentData);
     
     // Здесь добавьте вашу логику обработки платежа
