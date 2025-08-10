@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: payment-webhook
+    env: node
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_ID
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: PLATEGA_API_KEY
+        sync: false
+      - key: PLATEGA_MERCHANT_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_IPS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+
