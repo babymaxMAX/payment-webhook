@@ -4,9 +4,29 @@ const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// === Database (PostgreSQL) ===
+const DATABASE_URL = process.env.DATABASE_URL;
+const dbPool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: DATABASE_URL.includes('render.com') ? { rejectUnauthorized: false } : undefined }) : null;
+
+async function ensureDb() {
+  if (!dbPool) return;
+  await dbPool.query(
+    `CREATE TABLE IF NOT EXISTS payments (
+       id TEXT PRIMARY KEY,
+       amount NUMERIC,
+       currency TEXT,
+       provider_status TEXT,
+       event_type TEXT,
+       raw JSONB,
+       created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+     );`
+  );
+}
+
 
 // === Telegram notifications config ===
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -122,6 +142,10 @@ app.post(['/webhook/payment', '/webhook'], checkIPWhitelist, (req, res) => {
     
     // Здесь добавьте вашу логику обработки платежа
     processPayment(paymentData);
+    // Асинхронно сохраняем (идемпотентно)
+    if (dbPool) {
+      savePaymentIfNew(paymentData).catch((e) => console.error('DB save error:', e));
+    }
     
     // Отправляем успешный ответ
     res.status(200).json({ 
@@ -254,6 +278,34 @@ async function notifyAdminPaymentEvent(status, data) {
 
   const text = lines.join('\n');
   await sendTelegramMessage(TELEGRAM_ADMIN_ID, text);
+}
+
+async function savePaymentIfNew(data) {
+  if (!dbPool) return;
+  const id = String(data.id || data.payment_id || '').trim();
+  if (!id) return;
+  const amount = data.amount ?? data.paymentDetails?.amount ?? null;
+  const currency = data.currency ?? data.paymentDetails?.currency ?? null;
+  const providerStatus = data.status ?? null;
+  const eventType = data.event_type ?? data.type ?? null;
+  const raw = JSON.stringify(data);
+  const client = await dbPool.connect();
+  try {
+    await client.query('BEGIN');
+    const exists = await client.query('SELECT 1 FROM payments WHERE id = $1', [id]);
+    if (exists.rowCount === 0) {
+      await client.query(
+        'INSERT INTO payments (id, amount, currency, provider_status, event_type, raw) VALUES ($1,$2,$3,$4,$5,$6)',
+        [id, amount, currency, providerStatus, eventType, raw]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // Endpoint для проверки здоровья сервиса
